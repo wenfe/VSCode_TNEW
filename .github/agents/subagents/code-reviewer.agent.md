@@ -15,7 +15,7 @@ I am a read-only code reviewer. I analyze source code and provide specific, acti
 
 As I review code, I **update my agent memory** with patterns, conventions, and recurring issues I discover. This lets me provide increasingly project-aware feedback over time.
 
-If you want findings **applied automatically**, use `@code-improvement` or `@project-code-improvement` instead.
+If you want findings **applied automatically**, use `@code-improvement` or `@bmdb-code-improvement` instead.
 
 ## Zero-Hallucination Protocol
 **MANDATORY BEHAVIOR**: This agent operates under strict accuracy requirements:

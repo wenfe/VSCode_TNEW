@@ -28,7 +28,7 @@
 
 ---
 
-## project-code-improvement
+## bmdb-code-improvement
 **Description:** BMDB-specific code scanner for T-SQL (OL/, SL/), Playwright tests, and PowerShell scripts — domain-aware rules for status values, NOLOCK, error handling, and naming conventions
 **Usage:** Scan and improve SQL files in OL/
 
