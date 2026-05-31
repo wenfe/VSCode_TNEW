@@ -72,3 +72,4 @@ C:\Users\vivia\VSCode_T\AspireApp\AspireApp.AppHost\obj\Debug\net8.0\refint\Aspi
 C:\Users\vivia\VSCode_T\AspireApp\AspireApp.AppHost\obj\Debug\net8.0\AspireApp.AppHost.pdb
 C:\Users\vivia\VSCode_T\AspireApp\AspireApp.AppHost\obj\Debug\net8.0\AspireApp.AppHost.genruntimeconfig.cache
 C:\Users\vivia\VSCode_T\AspireApp\AspireApp.AppHost\obj\Debug\net8.0\ref\AspireApp.AppHost.dll
+C:\Users\vivia\VSCode_T\AspireApp\AspireApp.AppHost\obj\Debug\net8.0\Aspire\references\AspireApp_PuiProxy.ProjectMetadata.g.cs

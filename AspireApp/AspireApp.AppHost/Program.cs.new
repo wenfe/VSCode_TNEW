@@ -1,0 +1,61 @@
+var builder = DistributedApplication.CreateBuilder(args);
+
+// === Observability stack (LGTM + OTel Collector + MailHog) ===
+
+var prometheus = builder.AddContainer("prometheus", "prom/prometheus", "v2.55.1")
+    .WithBindMount("observability/prometheus.yml", "/etc/prometheus/prometheus.yml", isReadOnly: true)
+    .WithContainerRunArgs(
+        "--config.file=/etc/prometheus/prometheus.yml",
+        "--web.enable-remote-write-receiver",
+        "--enable-feature=exemplar-storage",
+        "--storage.tsdb.retention.time=6h")
+    .WithEndpoint(targetPort: 9090, port: 9090, name: "http", scheme: "http");
+
+var loki = builder.AddContainer("loki", "grafana/loki", "3.2.1")
+    .WithBindMount("observability/loki-config.yaml", "/etc/loki/local-config.yaml", isReadOnly: true)
+    .WithContainerRunArgs("-config.file=/etc/loki/local-config.yaml")
+    .WithEndpoint(targetPort: 3100, port: 3100, name: "http", scheme: "http");
+
+var tempo = builder.AddContainer("tempo", "grafana/tempo", "2.6.1")
+    .WithBindMount("observability/tempo-config.yaml", "/etc/tempo.yaml", isReadOnly: true)
+    .WithContainerRunArgs("-config.file=/etc/tempo.yaml")
+    .WithEndpoint(targetPort: 3200, port: 3200, name: "http", scheme: "http");
+
+var collector = builder.AddContainer("otel-collector", "otel/opentelemetry-collector-contrib", "0.112.0")
+    .WithBindMount("observability/otel-collector-config.yaml", "/etc/otelcol-contrib/config.yaml", isReadOnly: true)
+    .WithContainerRunArgs("--config=/etc/otelcol-contrib/config.yaml")
+    .WithEndpoint(targetPort: 4317, port: 4317, name: "otlp-grpc", scheme: "http")
+    .WithEndpoint(targetPort: 4318, port: 4318, name: "otlp-http", scheme: "http")
+    .WithEndpoint(targetPort: 13133, port: 13133, name: "health", scheme: "http");
+
+var mailhog = builder.AddContainer("mailhog", "mailhog/mailhog", "v1.0.1")
+    .WithEndpoint(targetPort: 1025, port: 1025, name: "smtp")
+    .WithEndpoint(targetPort: 8025, port: 8025, name: "http", scheme: "http");
+
+var grafana = builder.AddContainer("grafana", "grafana/grafana", "11.3.0")
+    .WithBindMount("observability/grafana/provisioning", "/etc/grafana/provisioning", isReadOnly: true)
+    .WithBindMount("observability/grafana/dashboards", "/var/lib/grafana/dashboards", isReadOnly: true)
+    .WithEnvironment("GF_AUTH_ANONYMOUS_ENABLED", "true")
+    .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
+    .WithEnvironment("GF_AUTH_DISABLE_LOGIN_FORM", "true")
+    .WithEnvironment("GF_FEATURE_TOGGLES_ENABLE", "traceqlEditor")
+    .WithEnvironment("GF_SECURITY_ALLOW_EMBEDDING", "true")
+    .WithEndpoint(targetPort: 3000, port: 3000, name: "http", scheme: "http");
+
+// === .NET services — export telemetry to the collector on the host ===
+// Container port 4317 is published to host port 4317, so the projects (running on the host)
+// reach the collector via http://localhost:4317.
+
+const string OtlpEndpoint = "http://localhost:4317";
+
+var apiService = builder.AddProject<Projects.AspireApp_ApiService>("apiservice")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", OtlpEndpoint)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
+
+builder.AddProject<Projects.AspireApp_Web>("webfrontend")
+    .WithExternalHttpEndpoints()
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", OtlpEndpoint)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+    .WithReference(apiService);
+
+builder.Build().Run();

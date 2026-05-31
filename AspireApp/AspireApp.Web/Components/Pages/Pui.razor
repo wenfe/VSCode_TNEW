@@ -1,0 +1,51 @@
+@page "/pui"
+
+@inject PuiApiClient PuiApi
+
+<PageTitle>PUI Demo</PageTitle>
+
+<h1>PUI Demo Action Center</h1>
+
+<p>Trigger business actions and simulation scenarios to populate metrics, logs, traces and alerts.</p>
+
+<div class="mb-3">
+    <button class="btn btn-primary me-2" @onclick='() => RunActionAsync("search-report")'>Run Action: search-report</button>
+    <button class="btn btn-primary me-2" @onclick='() => RunActionAsync("create-report")'>Run Action: create-report</button>
+    <button class="btn btn-secondary me-2" @onclick='() => SetScenarioAsync("error-burst")'>Simulate error-burst</button>
+    <button class="btn btn-secondary me-2" @onclick='() => SetScenarioAsync("slow")'>Simulate slow</button>
+    <button class="btn btn-danger me-2" @onclick='() => SetScenarioAsync("down")'>Simulate down</button>
+    <button class="btn btn-success" @onclick='() => SetScenarioAsync("reset")'>Reset simulation</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(lastResult))
+{
+    <div class="alert @(lastSuccess ? "alert-success" : "alert-warning")" role="alert">
+        <div><strong>Status:</strong> @lastStatus</div>
+        <pre class="mb-0">@lastResult</pre>
+    </div>
+}
+
+@code {
+    private string lastResult = string.Empty;
+    private bool lastSuccess;
+    private int lastStatus;
+
+    private async Task RunActionAsync(string actionName)
+    {
+        var result = await PuiApi.RunActionAsync(actionName);
+        SetResult(result);
+    }
+
+    private async Task SetScenarioAsync(string scenario)
+    {
+        var result = await PuiApi.SetScenarioAsync(scenario);
+        SetResult(result);
+    }
+
+    private void SetResult(PuiActionResult result)
+    {
+        lastSuccess = result.IsSuccess;
+        lastStatus = result.StatusCode;
+        lastResult = result.Payload;
+    }
+}

@@ -1,0 +1,164 @@
+{
+  "name": "PUI Incident Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "pui-incident",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "id": "IncidentWebhook",
+      "name": "incident-webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst severity = payload?.alerts?.[0]?.labels?.severity || payload?.severity || 'warning';\nconst title = payload?.alerts?.[0]?.annotations?.summary || payload.title || 'PUI incident';\nconst body = `Automated incident from Grafana\\n\\nSeverity: ${severity}\\nStatus: ${payload.status || 'firing'}\\n\\nPayload:\\n\\`\\`\\`json\\n${JSON.stringify(payload, null, 2)}\\n\\`\\`\\``;\nreturn [{ json: { severity, title, body, payload } }];"
+      },
+      "id": "BuildIssuePayload",
+      "name": "Build Issue Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "isCritical",
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "OnlyCritical",
+      "name": "Only Critical",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        670,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/repos/{{$env.GITHUB_OWNER || 'owner'}}/{{$env.GITHUB_REPO || 'repo'}}/issues",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.GITHUB_TOKEN || ''}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": `PUI Incident: ${$json.title}`,\n  \"body\": $json.body,\n  \"labels\": [\"incident\",\"auto-created\"]\n}",
+        "options": {}
+      },
+      "id": "CreateGitHubIssue",
+      "name": "Create GitHub Issue",
+      "continueOnFail": true,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL || '' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": `Incident workflow triggered for ${$json.title}. GitHub issue creation attempted.`\n}",
+        "options": {}
+      },
+      "id": "IncidentTeamsNotify",
+      "name": "Notify Teams",
+      "continueOnFail": true,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        920,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"ok\": true,\n  \"critical\": false\n}"
+      },
+      "id": "IncidentResponse",
+      "name": "Incident Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1150,
+        260
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "incident-webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Issue Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Issue Payload": {
+      "main": [
+        [
+          {
+            "node": "Incident Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "00000000-0000-0000-0000-000000000002",
+  "meta": {
+    "instanceId": "local-demo"
+  },
+  "id": "pui-incident-automation"
+}

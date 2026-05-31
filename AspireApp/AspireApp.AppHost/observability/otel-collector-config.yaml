@@ -1,0 +1,62 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  # Make sure logs have a service.name attribute for Loki labels
+  resource:
+    attributes:
+      - key: service.name
+        from_attribute: service.name
+        action: upsert
+
+exporters:
+  # Metrics -> Prometheus (remote write)
+  prometheusremotewrite:
+    endpoint: http://host.docker.internal:39090/api/v1/write
+    tls:
+      insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Logs -> Loki via OTLP HTTP endpoint
+  otlphttp/loki:
+    endpoint: http://host.docker.internal:33100/otlp
+    tls:
+      insecure: true
+
+  # Traces -> Tempo via OTLP gRPC
+  otlp/tempo:
+    endpoint: host.docker.internal:34318
+    tls:
+      insecure: true
+
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [prometheusremotewrite, debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [otlphttp/loki, debug]
+    traces:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [otlp/tempo, debug]
