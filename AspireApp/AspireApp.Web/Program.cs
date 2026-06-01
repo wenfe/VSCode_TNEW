@@ -21,7 +21,7 @@ builder.Services.AddHttpClient<WeatherApiClient>(client =>
 
 builder.Services.AddHttpClient<PuiApiClient>(client =>
     {
-        client.BaseAddress = new("https+http://puiproxy");
+        client.BaseAddress = new("https+http://puiapi");
     });
 
 var app = builder.Build();

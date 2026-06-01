@@ -56,7 +56,7 @@
               "operator": "=~",
               "scope": "resource",
               "tag": "service.name",
-              "value": "apiservice|webfrontend|puiproxy"
+              "value": "apiservice|webfrontend|puiapi"
             }
           ],
           "limit": 20,
@@ -97,7 +97,7 @@
           "groupBy": [
             "service.name"
           ],
-          "query": "{ resource.service.name =~ \"apiservice|webfrontend|puiproxy\" }",
+          "query": "{ resource.service.name =~ \"apiservice|webfrontend|puiapi\" }",
           "queryType": "traceql",
           "refId": "A"
         }

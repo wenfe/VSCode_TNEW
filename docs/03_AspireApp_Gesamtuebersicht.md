@@ -2,7 +2,7 @@
 
 ## Inhaltsverzeichnis
 - [Überblick](#überblick)
-- [Best-of-Umsetzungsplan (WP1-WP5)](#best-of-umsetzungsplan-wp1-wp5)
+- [Best-of-Umsetzungsplan für den Hackathon (WP1-WP5)](#best-of-umsetzungsplan-für-den-hackathon-wp1-wp5)
 - [Projektstruktur](#projektstruktur)
 - [Komponenten](#komponenten)
 - [End-to-End-Pipeline](#end-to-end-pipeline)
@@ -19,67 +19,148 @@ Die Lösung enthält genau diese Projekte in [AspireApp.sln](../AspireApp/Aspire
 - [AspireApp.ServiceDefaults](../AspireApp/AspireApp.sln#L8)
 - [AspireApp.ApiService](../AspireApp/AspireApp.sln#L10)
 - [AspireApp.Web](../AspireApp/AspireApp.sln#L12)
-- [AspireApp.PuiProxy](../AspireApp/AspireApp.sln#L14)
+- [AspireApp.PuiApi](../AspireApp/AspireApp.sln#L14)
 
-## Best-of-Umsetzungsplan (WP1-WP5)
+## Best-of-Umsetzungsplan für den Hackathon (WP1-WP5)
+
+### Ziel und Erfolgskriterien
+**Ziel:** In einer lokalen .NET-Aspire-Demo einen vollständigen Observability-Kreislauf zeigen: Eine PUI-Fachaktion erzeugt technische und fachliche Telemetrie, der LGTM-Stack macht sie sichtbar, Grafana bewertet Alert-Regeln und n8n verarbeitet den Alert automatisiert weiter.
+
+**Erfolgskriterien (messbar und demotauglich):**
+- Eine PUI-Aktion ist in unter 60 Sekunden in Grafana als Metrik, Log und Trace nachvollziehbar.
+- Mindestens ein Alert wird live ausgelöst und endet sichtbar als n8n-Workflow-Resultat (z. B. MailHog-Mail).
+- Die fünf Demo-Schritte (Normal -> Slow -> Error -> Alert -> Recovery) laufen reproduzierbar durch.
+
+### Leitidee
+> AppHost, LGTM-Stack und n8n bleiben stabil. Optimiert wird vor allem die Schicht zwischen Web UI und PUI-Service.
+
+Der bisherige `PuiProxy` wird konzeptionell zu einer klar benannten **PuiApi** weiterentwickelt: keine reine Weiterleitungsschicht mehr, sondern eine PUI-Observability-API, die Fachaktionen und Fehlerszenarien bereitstellt und daraus technische und fachliche Telemetrie erzeugt. Diese Evolution ist in [WP2](#wp2---pui-api-und-telemetry-integration) beschrieben und für den Pitch empfohlen, aber nicht zwingend (Fallback siehe dort).
+
+### Priorisierung (MoSCoW)
+Bei begrenzter Hackathon-Zeit gilt diese Reihenfolge:
+
+| Priorität | Inhalt | Begründung |
+| --- | --- | --- |
+| **Must** | WP1 Setup, WP2 Telemetrie (technisch), WP3 Health-Dashboard, ein funktionierender Alert (WP4), WP5 Story | Ohne diese Kette gibt es keine vorzeigbare End-to-End-Demo. |
+| **Should** | Fachliche PUI-Metriken, getrennte Dashboards (Business/Logs/Traces), n8n-Routing nach Severity | Hebt die Demo von einer reinen Tool-Schau zu einer fachlichen Story. |
+| **Could** | Umbenennung `PuiProxy` -> `PuiApi`, REST-Struktur `/api/pui`, Collector-Processors, Business-Alerts | Hohe Wirkung im Pitch, aber bei Zeitmangel verschiebbar. |
+| **Won't (heute)** | Auth, Persistenz, echte externe Notification-Ziele (Teams/Slack/Jira produktiv) | Nicht demo-relevant, erhöht nur Risiko. |
+
+### Zeitplan (Time-Boxing für einen Tag)
+| Slot | Fokus | Ergebnis am Ende des Slots |
+| --- | --- | --- |
+| Block 1 | WP1 + WP2 Basis | Stack läuft, eine PUI-Aktion erzeugt Metrik/Log/Trace |
+| Block 2 | WP2 fachlich + WP3 | Health- und Business-Dashboard zeigen reale Werte |
+| Block 3 | WP4 | Ein Alert löst aus und erreicht n8n |
+| Block 4 | WP5 + Puffer | Story sitzt, Fallback-Screenshots vorhanden, Probelauf erfolgreich |
+
+---
 
 ### WP1 - Architektur und Setup
+**Ziel:** Eine stabile, reproduzierbare Basisinfrastruktur, auf der alle weiteren Pakete aufsetzen.
+
 **Was konkret:**
 - Der AppHost orchestriert sieben Container-Ressourcen: `otel-collector`, `prometheus`, `loki`, `tempo`, `grafana`, `mailhog`, `n8n`.
 - Alle Observability-Dienste werden per Bind-Mount aus `observability/` konfiguriert.
-- `apiservice`, `puiproxy` und `webfrontend` sind über `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:34317` an den Collector angebunden.
+- `apiservice`, `puiapi` und `webfrontend` sind über `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:34317` an den Collector angebunden.
+- Feste Host-Ports und `isProxied: false` halten die lokale Laufzeit einfach erreichbar.
 
-**Warum:**
-Ohne diesen Stack gibt es kein gemeinsames Ziel für Metriken, Logs und Traces. Der AppHost liefert zusätzlich das Aspire-Dashboard als Dev-Ansicht, während Grafana die Demo-Ansicht bereitstellt.
+**Definition of Done:**
+- [ ] AppHost startet alle Container ohne Fehler.
+- [ ] Aspire-Dashboard und Grafana sind erreichbar.
+- [ ] Der Collector-Health-Endpoint antwortet.
 
-**Skippable:** Nein. Das ist die Basisinfrastruktur.
+**Priorität:** Must. **Fallback:** Keiner. Ohne diese Basis gibt es keine Demo.
 
-### WP2 - Telemetry Integration
+### WP2 - PUI API und Telemetry Integration
+**Ziel:** Eine klar abgegrenzte PUI-Schicht, die reale Fachaktionen und Fehlerszenarien simuliert und daraus technische sowie fachliche Telemetrie erzeugt.
+
 **Was konkret:**
 - Die Service Defaults aktivieren OpenTelemetry-Basistelemetrie für ASP.NET Core, HTTP-Clients und Runtime.
-- Fachliche Trigger und Metriken liegen im `PuiProxy` (nicht im `ApiService`), inklusive Simulationen `error-burst`, `slow`, `down`, `reset`.
-- Der Collector verarbeitet drei Pipelines (`metrics`, `logs`, `traces`) und exportiert nach Prometheus, Loki und Tempo.
+- Fachliche Trigger und Metriken liegen in der PUI-Schicht (nicht im `ApiService`), inklusive Simulationen `error-burst`, `slow`, `down`, `reset`.
+- **Technische Telemetrie** entsteht automatisch über die Instrumentierung (Requests, Latenz, Exceptions).
+- **Fachliche Telemetrie** entsteht über eigene Meter/ActivitySources, z. B. Zähler für Aktionen je Outcome und ein Histogramm für die Aktionsdauer.
+- Der Collector verarbeitet drei Pipelines (`metrics`, `logs`, `traces`) und exportiert nach Prometheus, Loki und Tempo. Empfohlen sind die Processors `memory_limiter`, `batch` und `resource` (einheitliche Attribute wie `service.name`, `deployment.environment=local-demo`).
+
+**Empfohlene Evolution `PuiProxy` -> `PuiApi` (Could, hohe Pitch-Wirkung):**
+- Den Dienst von `AspireApp.PuiProxy` zu `AspireApp.PuiApi` weiterentwickeln und im AppHost/Web als `puiapi` referenzieren (einheitlicher `service_name="puiapi"` in Grafana).
+- Endpunkte in eine klarere REST-Struktur überführen:
+
+| Heute (Ist) | Empfohlen (Ziel) | Zweck |
+| --- | --- | --- |
+| `POST /pui/action/{name}` | `POST /api/pui/actions/{name}` | Fachaktion auslösen (z. B. `generate-report`, `export-excel`, `send-warning`) |
+| `POST /pui/simulate/{scenario}` | `POST /api/pui/simulations/{scenario}` | Szenario aktivieren (`slow`, `error-burst`, `down`) |
+| (Teil von simulate) | `POST /api/pui/reset` | Normalzustand wiederherstellen |
+| `GET /pui/report` | `GET /api/pui/report` | Aktuellen Zustand anzeigen |
 
 **Warum:**
-Die Kombination aus technischer Basistelemetrie und PUI-spezifischen Triggern macht die Demo reproduzierbar und fachlich aussagekräftig.
+Die Kombination aus technischer Basistelemetrie und PUI-spezifischen, fachlich benannten Triggern macht die Demo reproduzierbar und aussagekräftig. Ein klar benannter `puiapi`-Service vereinfacht Dashboards, Queries und Alerts.
 
-**Skippable:** Nein. Reduzierbar nur mit deutlichem Verlust an Demo-Wirkung.
+**Definition of Done:**
+- [ ] Eine ausgelöste PUI-Aktion erscheint als Metrik, Log und Trace in der Pipeline.
+- [ ] Die Szenarien `slow`, `error-burst`, `down`, `reset` verändern das beobachtbare Verhalten sichtbar.
+- [ ] Mindestens eine fachliche Metrik (Aktionen/Outcome oder Aktionsdauer) ist vorhanden.
+
+**Priorität:** Must (Basis-Telemetrie + Szenarien), Should (fachliche Metriken), Could (Umbenennung + REST-Struktur).
+**Fallback:** Bei Zeitmangel beim aktuellen `PuiProxy` mit den bestehenden `/pui/...`-Endpunkten bleiben; nur die Beschreibung/Story auf "PuiApi" ausrichten.
 
 ### WP3 - Grafana Dashboard
+**Ziel:** Eine an der PUI-Service-Grenze ausgerichtete, klar lesbare Demo-Oberfläche.
+
 **Was konkret:**
 - Dashboards sind per Provisioning automatisch geladen.
-- Der aktuelle Ist-Stand nutzt vier spezialisierte Dashboards statt eines Monolithen:
-    - `pui-system-health`
-    - `pui-business-metrics`
-    - `pui-logs`
-    - `pui-traces`
+- Vier spezialisierte Dashboards statt eines Monolithen:
+    - `pui-system-health` (Requests, Latenz P95, Error Rate)
+    - `pui-business-metrics` (Aktionen je Outcome, Aktionsdauer)
+    - `pui-logs` (gefilterte Logs des PUI-Service)
+    - `pui-traces` (Request-Pfade für die Ursachenanalyse)
 
 **Warum:**
-So bleibt die Demo klar lesbar: Health, Business, Logs und Traces sind getrennt und schnell navigierbar.
+So bleibt die Demo klar lesbar und folgt einem realistischen Troubleshooting-Pfad: vom Symptom (Health) über die fachliche Auswirkung (Business) bis zur Ursache (Logs/Traces).
 
-**Skippable:** Nein. Ohne kuratierte Grafana-Sicht fehlt die zentrale Demo-Oberfläche.
+**Definition of Done:**
+- [ ] Alle vier Dashboards laden automatisch und zeigen Live-Daten.
+- [ ] Im Health-Dashboard ist der Latenzanstieg bei `slow` sichtbar.
+- [ ] Im Business-Dashboard sind Erfolg/Fehler je Aktion erkennbar.
+
+**Priorität:** Must (Health), Should (Business/Logs/Traces).
+**Fallback:** Notfalls nur `pui-system-health` live zeigen, restliche per Screenshot.
 
 ### WP4 - Alerting und Notification
+**Ziel:** Aus einem sichtbaren Problem wird automatisiert eine weiterverarbeitbare Benachrichtigung.
+
 **Was konkret:**
-- Grafana-Regeln sind provisioniert (u. a. Error Rate, Slow Response, Service Down, Exception Spike, Failed Requests Burst).
+- Grafana-Regeln sind provisioniert. Empfohlene Zweiteilung:
+    - **Technische Alerts:** `HighErrorRate`, `SlowResponse` (P95), `ServiceDown`, `ExceptionSpike`.
+    - **Business-Alerts (Could):** `ReportGenerationFailed`, `WarningSendingFailed`, `ExcelExportFailed`, `ActionFailureBurst`.
 - Der Contact Point zeigt auf `n8n-webhook` (Webhook), nicht direkt auf SMTP.
-- n8n übernimmt das Routing und kann Benachrichtigungen u. a. Richtung MailHog/SMTP, Teams oder Slack weitergeben.
+- n8n übernimmt das Routing: Payload normalisieren, Severity klassifizieren, Grafana-/Loki-/Tempo-Links anreichern und nach Schweregrad routen (critical -> Teams/Jira, warning -> MailHog/E-Mail, info -> nur protokollieren).
 
 **Warum:**
-Der Mehrwert ist nicht nur Alarmierung, sondern automatisierbare Weiterverarbeitung des Alerts.
+Der Mehrwert ist nicht nur Alarmierung, sondern Klassifikation, Anreicherung und automatisierte Weiterverarbeitung des Alerts.
 
-**Skippable:** Für einen Pitch nur eingeschränkt. Mindestens eine aktiv nutzbare Regel sollte gezeigt werden.
+**Definition of Done:**
+- [ ] Mindestens eine Regel löst im Szenario `error-burst` live aus.
+- [ ] Der Alert erreicht n8n und erzeugt ein sichtbares Resultat (z. B. MailHog-Mail).
+- [ ] Die Benachrichtigung enthält Service, Szenario und einen Grafana-Link.
+
+**Priorität:** Must (ein funktionierender technischer Alert), Should (n8n-Routing), Could (Business-Alerts).
+**Fallback:** Eine einzige robuste Regel (`HighErrorRate`) live zeigen, restliches Routing per Screenshot.
 
 ### WP5 - Demo und Pitch
+**Ziel:** Eine klare Story, die den technischen Aufbau als Nutzen erlebbar macht.
+
 **Was konkret:**
-- Kompakte Storyline mit klaren Triggern aus der PUI.
+- Roter Faden: Fachaktion -> Systemstörung -> Observability-Signale -> Alert -> automatisierte Reaktion -> Recovery (Detailablauf siehe [Kompakter Demo-Flow](#kompakter-demo-flow)).
+- Nutzenbotschaft: Wir überwachen nicht nur, ob das System technisch gesund ist, sondern auch, ob wichtige PUI-Fachaktionen erfolgreich sind.
 - Fallback-Screenshots aus Grafana und n8n für den Notfall.
-- Fokus auf Nutzenbotschaft: Probleme sichtbar machen, priorisieren und automatisiert weiterleiten.
 
-**Warum:**
-Die technische Tiefe wird erst mit einer klaren Story als Mehrwert wahrgenommen.
+**Definition of Done:**
+- [ ] Ein vollständiger Probelauf der fünf Schritte ist ohne Eingriff durchgelaufen.
+- [ ] Fallback-Screenshots liegen bereit.
+- [ ] Der Pitch endet mit einer klaren Nutzenaussage.
 
-**Skippable:** Nein. Kürzbar ja, aber nicht streichen.
+**Priorität:** Must. **Fallback:** Kürzbar (Slow- oder Recovery-Schritt überspringen), aber nicht streichen.
 
 ## Projektstruktur
 Das System ist in fünf funktionale Schichten aufgeteilt:
@@ -88,14 +169,14 @@ Das System ist in fünf funktionale Schichten aufgeteilt:
 2. **ServiceDefaults** liefert gemeinsame Infrastruktur wie Service Discovery, Health Checks und OpenTelemetry.
 3. **ApiService** stellt eine einfache Beispiel-API bereit.
 4. **Web** ist die Benutzeroberfläche und ruft die anderen Dienste auf.
-5. **PuiProxy** simuliert Fachaktionen, Fehler und Betriebszustände für Observability-Tests.
+5. **PuiApi** simuliert Fachaktionen, Fehler und Betriebszustände für Observability-Tests.
 
 Die Architektur ist absichtlich klein, aber vollständig genug, um einen echten Observability-Datenfluss zu zeigen.
 
 ```mermaid
 flowchart TD
     U[Benutzer] --> W[Web UI /pui]
-    W --> P[PuiProxy]
+    W --> P[PuiApi]
     W --> A[ApiService]
     P --> O[OpenTelemetry]
     A --> O
@@ -116,7 +197,7 @@ flowchart TD
 
 Wichtige Stellen im Code:
 - Grafana-Container: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L45)
-- PuiProxy-Projekt: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L62)
+- PuiApi-Projekt: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L62)
 - Web-Projekt: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L67)
 
 Kurz gesagt: AppHost ist der Startpunkt, der aus mehreren Einzelteilen ein lauffähiges Gesamtsystem macht.
@@ -151,18 +232,19 @@ Funktional ist das ein simples Backend, das zeigt, wie eine typische Service-API
 Wichtige Aufgaben:
 - Aktiviert Service Defaults: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L7)
 - Bindet `WeatherApiClient` an `apiservice`: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L16)
-- Bindet `PuiApiClient` an `puiproxy`: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L22)
+- Bindet `PuiApiClient` an `puiapi`: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L22)
 - Registriert die Standard-Endpunkte: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L46)
 
 Die PUI-Seite selbst befindet sich in [Pui.razor](../AspireApp/AspireApp.Web/Components/Pages/Pui.razor#L1). Dort gibt es Buttons zum Auslösen von Fachaktionen und Simulationsszenarien.
 
-### AspireApp.PuiProxy
-[PuiProxy](../AspireApp/AspireApp.PuiProxy/Program.cs#L1) ist der Simulations- und Observability-Dienst. Er ist dafür da, echte Betriebszustände nachzustellen und daraus Telemetrie zu erzeugen.
+### AspireApp.PuiApi
+[PuiApi](../AspireApp/AspireApp.PuiApi/Program.cs#L1) ist der Simulations- und Observability-Dienst. Er ist dafür da, echte Betriebszustände nachzustellen und daraus Telemetrie zu erzeugen.
 
 Die wichtigsten Endpunkte sind:
-- `POST /pui/action/{name}`: [Program.cs](../AspireApp/AspireApp.PuiProxy/Program.cs#L28)
-- `GET /pui/report`: [Program.cs](../AspireApp/AspireApp.PuiProxy/Program.cs#L112)
-- `POST /pui/simulate/{scenario}`: [Program.cs](../AspireApp/AspireApp.PuiProxy/Program.cs#L130)
+- `POST /api/pui/actions/{name}`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L28)
+- `GET /api/pui/report`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L112)
+- `POST /api/pui/simulations/{scenario}`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L130)
+- `POST /api/pui/reset`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L130)
 
 Was der Dienst intern macht:
 - Er protokolliert jede Aktion mit Trace-ID und Benutzerkontext.
@@ -170,14 +252,14 @@ Was der Dienst intern macht:
 - Er erzeugt Traces über `ActivitySource`.
 - Er simuliert Störungen wie `error-burst`, `slow`, `down` und `reset`.
 
-Damit ist PuiProxy der Teil, der absichtlich Fehler produziert, damit das Observability-Setup sichtbar wird.
+Damit ist PuiApi der Teil, der absichtlich Fehler produziert, damit das Observability-Setup sichtbar wird.
 
 ## End-to-End-Pipeline
 Die komplette Kette läuft so:
 
 1. Der Benutzer öffnet die Web-Oberfläche.
-2. Die Web-App ruft PuiProxy oder ApiService per HTTP auf.
-3. PuiProxy verarbeitet die Fachaktion oder Simulation.
+2. Die Web-App ruft PuiApi oder ApiService per HTTP auf.
+3. PuiApi verarbeitet die Fachaktion oder Simulation.
 4. Dabei entstehen Logs, Metriken und Traces.
 5. Das OpenTelemetry-Setup exportiert Telemetrie an den Collector.
 6. Der Collector leitet Daten an Prometheus, Loki und Tempo weiter.
@@ -189,12 +271,12 @@ Die technische Grundlage dafür liegt in:
 - [AppHost](../AspireApp/AspireApp.AppHost/Program.cs#L1)
 - [ServiceDefaults](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L17)
 - [Web](../AspireApp/AspireApp.Web/Program.cs#L1)
-- [PuiProxy](../AspireApp/AspireApp.PuiProxy/Program.cs#L1)
+- [PuiApi](../AspireApp/AspireApp.PuiApi/Program.cs#L1)
 
 ### Beispielhafter Ablauf für `error-burst`
 1. In der Web-App wird `Simulate error-burst` ausgelöst.
-2. Die Web-App sendet den Szenario-Request an PuiProxy.
-3. PuiProxy setzt die Fehler-Simulation intern auf einen Fehlerzähler.
+2. Die Web-App sendet den Szenario-Request an PuiApi.
+3. PuiApi setzt die Fehler-Simulation intern auf einen Fehlerzähler.
 4. Die nächste Fachaktion liefert einen HTTP-500-Fehler.
 5. Die Fehler-Metrik steigt.
 6. Grafana erkennt die Regelverletzung.
@@ -227,7 +309,7 @@ Wichtige Ressourcen im aktuellen Setup:
 - n8n: `http://localhost:35678/`
 - PUI-Seite: im Web-Frontend unter `/pui`
 - ApiService-Health: über die Standard-Endpunkte des Dienstes
-- PuiProxy-Report: `/pui/report`
+- PuiApi-Report: `/api/pui/report`
 
 ## Troubleshooting
 
@@ -261,4 +343,4 @@ Das ist je nach Szenario absichtlich so. `error-burst`, `slow` und `down` sind b
 Für dieses lokale Setup nicht. Die Lösung läuft lokal über AppHost, Docker und die lokalen Dienste. Ein separater Aspire-Token ist für das Starten dieser Demo nicht erforderlich.
 
 ## Fazit
-AspireApp ist eine lokale, verteilte Demo, die zeigt, wie eine Web-App, ein API-Service und ein Simulationsdienst mit zentraler Orchestrierung, Observability und Alerting zusammenarbeiten. AppHost startet alles, ServiceDefaults standardisiert die Infrastruktur, ApiService liefert ein Backend, Web ist die Oberfläche und PuiProxy erzeugt die Test- und Störfälle für das Monitoring.
+AspireApp ist eine lokale, verteilte Demo, die zeigt, wie eine Web-App, ein API-Service und ein Simulationsdienst mit zentraler Orchestrierung, Observability und Alerting zusammenarbeiten. AppHost startet alles, ServiceDefaults standardisiert die Infrastruktur, ApiService liefert ein Backend, Web ist die Oberfläche und PuiApi erzeugt die Test- und Störfälle für das Monitoring.

@@ -46,7 +46,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "{service_name=~\"apiservice|webfrontend|puiproxy\"}",
+          "expr": "{service_name=~\"apiservice|webfrontend|puiapi\"}",
           "queryType": "range",
           "refId": "A"
         }
@@ -99,7 +99,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"apiservice|webfrontend|puiproxy\"} |= \"error\" [5m]))",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"apiservice|webfrontend|puiapi\"} |= \"error\" [5m]))",
           "queryType": "range",
           "refId": "A"
         }
@@ -152,7 +152,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"apiservice|webfrontend|puiproxy\"} [5m]))",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"apiservice|webfrontend|puiapi\"} [5m]))",
           "queryType": "range",
           "refId": "A"
         }

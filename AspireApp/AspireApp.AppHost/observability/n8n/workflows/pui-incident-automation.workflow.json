@@ -99,7 +99,7 @@
         "url": "={{ $env.TEAMS_WEBHOOK_URL || '' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"text\": `Incident workflow triggered for ${$json.title}. GitHub issue creation attempted.`\n}",
+          "jsonBody": "={{ {\"text\": \"Incident workflow triggered for \" + $json.title + \". GitHub issue creation attempted.\" } }}",
         "options": {}
       },
       "id": "IncidentTeamsNotify",
@@ -144,11 +144,33 @@
       "main": [
         [
           {
+            "node": "Only Critical",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Incident Response",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "Only Critical": {
+      "main": [
+        [
+          {
+            "node": "Create GitHub Issue",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify Teams",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
@@ -160,5 +182,5 @@
   "meta": {
     "instanceId": "local-demo"
   },
-  "id": "pui-incident-automation"
+  "id": "pui-incident-automation-v2"
 }

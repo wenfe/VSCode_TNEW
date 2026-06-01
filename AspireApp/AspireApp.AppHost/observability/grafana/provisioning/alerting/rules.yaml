@@ -17,7 +17,7 @@ groups:
               to: 0
             model:
               editorMode: code
-              expr: sum(rate(http_server_request_duration_seconds_count{service_name=~"apiservice|puiproxy|webfrontend",http_response_status_code=~"5.."}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=~"apiservice|puiproxy|webfrontend"}[5m]))
+              expr: sum(rate(http_server_request_duration_seconds_count{service_name=~"apiservice|puiapi|webfrontend",http_response_status_code=~"5.."}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=~"apiservice|puiapi|webfrontend"}[5m]))
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200
@@ -62,7 +62,7 @@ groups:
               to: 0
             model:
               editorMode: code
-              expr: histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{service_name=~"apiservice|puiproxy|webfrontend"}[5m])) by (le))
+              expr: histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket{service_name=~"apiservice|puiapi|webfrontend"}[5m])) by (le))
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200
@@ -152,7 +152,7 @@ groups:
               to: 0
             model:
               editorMode: code
-              expr: sum(count_over_time({service_name=~"apiservice|webfrontend|puiproxy"} |= "Exception" [5m]))
+              expr: sum(count_over_time({service_name=~"apiservice|webfrontend|puiapi"} |= "Exception" [5m]))
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200

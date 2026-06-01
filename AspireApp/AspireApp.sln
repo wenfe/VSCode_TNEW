@@ -11,7 +11,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AspireApp.ApiService", "Asp
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AspireApp.Web", "AspireApp.Web\AspireApp.Web.csproj", "{8510F7E6-1D94-4067-AC81-0EF46C367B48}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AspireApp.PuiProxy", "AspireApp.PuiProxy\AspireApp.PuiProxy.csproj", "{E54AB0DD-8D03-45D1-8F75-E3F3841B30A0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AspireApp.PuiApi", "AspireApp.PuiApi\AspireApp.PuiApi.csproj", "{E54AB0DD-8D03-45D1-8F75-E3F3841B30A0}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

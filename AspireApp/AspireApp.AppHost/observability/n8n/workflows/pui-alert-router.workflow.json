@@ -35,7 +35,7 @@
         "url": "={{ $env.TEAMS_WEBHOOK_URL || '' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"text\": `PUI Alert ${$json.status}: ${$json.title} | severity=${$json.severity} | service=${$json.service} | ${$json.summary}`\n}",
+        "jsonBody": "={{ {\"text\": \"PUI Alert \" + $json.status + \": \" + $json.title + \" | severity=\" + $json.severity + \" | service=\" + $json.service + \" | \" + ($json.summary || '') } }}",
         "options": {}
       },
       "id": "TeamsWebhook",
@@ -79,7 +79,7 @@
         "url": "={{ $env.SLACK_WEBHOOK_URL || '' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"text\": `PUI Alert ${$json.status}: ${$json.title} (${ $json.severity })`\n}",
+        "jsonBody": "={{ {\"text\": \"PUI Alert \" + $json.status + \": \" + $json.title + \" (\" + $json.severity + \")\" } }}",
         "options": {}
       },
       "id": "SlackWebhook",
@@ -124,6 +124,21 @@
       "main": [
         [
           {
+            "node": "Send Teams Message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Slack Message",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Webhook Response",
             "type": "main",
             "index": 0
@@ -140,5 +155,5 @@
   "meta": {
     "instanceId": "local-demo"
   },
-  "id": "pui-alert-router"
+  "id": "pui-alert-router-v2"
 }

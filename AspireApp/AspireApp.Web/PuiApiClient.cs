@@ -4,7 +4,7 @@ public class PuiApiClient(HttpClient httpClient)
 {
     public async Task<PuiActionResult> RunActionAsync(string actionName, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsync($"/pui/action/{Uri.EscapeDataString(actionName)}", content: null, cancellationToken);
+        using var response = await httpClient.PostAsync($"/api/pui/actions/{Uri.EscapeDataString(actionName)}", content: null, cancellationToken);
         var payload = await response.Content.ReadAsStringAsync(cancellationToken);
 
         return new PuiActionResult
@@ -17,7 +17,10 @@ public class PuiApiClient(HttpClient httpClient)
 
     public async Task<PuiActionResult> SetScenarioAsync(string scenario, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.PostAsync($"/pui/simulate/{Uri.EscapeDataString(scenario)}", content: null, cancellationToken);
+        var path = scenario.Equals("reset", StringComparison.OrdinalIgnoreCase)
+            ? "/api/pui/reset"
+            : $"/api/pui/simulations/{Uri.EscapeDataString(scenario)}";
+        using var response = await httpClient.PostAsync(path, content: null, cancellationToken);
         var payload = await response.Content.ReadAsStringAsync(cancellationToken);
 
         return new PuiActionResult

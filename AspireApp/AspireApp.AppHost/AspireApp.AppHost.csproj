@@ -11,7 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AspireApp.ApiService\AspireApp.ApiService.csproj" />
-    <ProjectReference Include="..\AspireApp.PuiProxy\AspireApp.PuiProxy.csproj" />
+    <ProjectReference Include="..\AspireApp.PuiApi\AspireApp.PuiApi.csproj" />
     <ProjectReference Include="..\AspireApp.Web\AspireApp.Web.csproj" />
   </ItemGroup>
 

@@ -34,12 +34,15 @@ builder.AddContainer("mailhog", "mailhog/mailhog", "v1.0.1")
 
 builder.AddContainer("n8n", "n8nio/n8n", "1.64.0")
     .WithBindMount("observability/n8n/workflows", "/files/workflows", isReadOnly: true)
+    .WithBindMount("observability/n8n/mailhog-credential.json", "/files/mailhog-credential.json", isReadOnly: true)
     .WithEnvironment("N8N_HOST", "localhost")
     .WithEnvironment("N8N_PORT", "5678")
     .WithEnvironment("N8N_PROTOCOL", "http")
     .WithEnvironment("N8N_SECURE_COOKIE", "false")
     .WithEnvironment("N8N_EDITOR_BASE_URL", "http://localhost:35678")
     .WithEnvironment("N8N_DEFAULT_BINARY_DATA_MODE", "filesystem")
+    .WithEntrypoint("/bin/sh")
+    .WithArgs("-lc", "n8n import:credentials --input=/files/mailhog-credential.json || true; n8n import:workflow --separate --input=/files/workflows || true; n8n update:workflow --all --active=true || true; exec n8n start")
     .WithEndpoint(targetPort: 5678, port: 35678, name: "http", scheme: "http", isProxied: false);
 
 builder.AddContainer("grafana", "grafana/grafana", "11.3.0")
@@ -59,10 +62,10 @@ var apiService = builder.AddProject<Projects.AspireApp_ApiService>("apiservice")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
     .WithEnvironment("OTEL_SERVICE_NAME", "apiservice");
 
-var puiProxy = builder.AddProject<Projects.AspireApp_PuiProxy>("puiproxy")
+var puiApi = builder.AddProject<Projects.AspireApp_PuiApi>("puiapi")
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", OtlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-    .WithEnvironment("OTEL_SERVICE_NAME", "puiproxy");
+    .WithEnvironment("OTEL_SERVICE_NAME", "puiapi");
 
 builder.AddProject<Projects.AspireApp_Web>("webfrontend")
     .WithExternalHttpEndpoints()
@@ -70,6 +73,6 @@ builder.AddProject<Projects.AspireApp_Web>("webfrontend")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
     .WithEnvironment("OTEL_SERVICE_NAME", "webfrontend")
     .WithReference(apiService)
-    .WithReference(puiProxy);
+    .WithReference(puiApi);
 
 builder.Build().Run();
