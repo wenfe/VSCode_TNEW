@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AspireApp.Web")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+06f011b3b26f60e1a21ae1503a46a40f6d0fa866")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+044bbb215f0a2cfcc33b9077ffc383ea90f3d8e7")]
 [assembly: System.Reflection.AssemblyProductAttribute("AspireApp.Web")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AspireApp.Web")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
