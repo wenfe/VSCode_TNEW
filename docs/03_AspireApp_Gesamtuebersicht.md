@@ -1,346 +1,300 @@
 # AspireApp Gesamtübersicht
 
 ## Inhaltsverzeichnis
-- [Überblick](#überblick)
-- [Best-of-Umsetzungsplan für den Hackathon (WP1-WP5)](#best-of-umsetzungsplan-für-den-hackathon-wp1-wp5)
-- [Projektstruktur](#projektstruktur)
-- [Komponenten](#komponenten)
-- [End-to-End-Pipeline](#end-to-end-pipeline)
-- [Kompakter Demo-Flow](#kompakter-demo-flow)
-- [Konfiguration und Laufzeit](#konfiguration-und-laufzeit)
-- [Wichtige URLs](#wichtige-urls)
+- [Zielbild](#zielbild)
+- [Architektur](#architektur)
+- [Funktionsübersicht pro Projekt](#funktionsübersicht-pro-projekt)
+- [Endpunkte und technische Funktionen](#endpunkte-und-technische-funktionen)
+- [Vollständiger Dateikatalog (AspireApp)](#vollständiger-dateikatalog-aspireapp)
+- [Observability- und Alerting-Pipeline](#observability--und-alerting-pipeline)
+- [Konfiguration und Betrieb](#konfiguration-und-betrieb)
 - [Troubleshooting](#troubleshooting)
 
-## Überblick
-AspireApp ist eine kleine verteilte Demo-Anwendung auf Basis von .NET Aspire. Die Lösung verbindet eine Web-Oberfläche, eine API, einen Simulationsdienst und eine zentrale Orchestrierung mit Observability-Stack, damit Logs, Metriken, Traces und Alerts gemeinsam sichtbar werden.
+## Zielbild
+AspireApp ist eine verteilte .NET-8-Demo mit fünf Projekten:
+- AspireApp.AppHost
+- AspireApp.ServiceDefaults
+- AspireApp.ApiService
+- AspireApp.PuiApi
+- AspireApp.Web
 
-Die Lösung enthält genau diese Projekte in [AspireApp.sln](../AspireApp/AspireApp.sln#L6):
-- [AspireApp.AppHost](../AspireApp/AspireApp.sln#L6)
-- [AspireApp.ServiceDefaults](../AspireApp/AspireApp.sln#L8)
-- [AspireApp.ApiService](../AspireApp/AspireApp.sln#L10)
-- [AspireApp.Web](../AspireApp/AspireApp.sln#L12)
-- [AspireApp.PuiApi](../AspireApp/AspireApp.sln#L14)
+Der technische Zweck ist ein vollständiger lokaler Kreislauf aus:
+1. Anwendungstraffic
+2. Telemetrie-Erzeugung (Logs, Metriken, Traces)
+3. Verarbeitung im OTel-Collector
+4. Visualisierung in Grafana (Prometheus/Loki/Tempo)
+5. Alerting und Automatisierung via n8n
 
-## Best-of-Umsetzungsplan für den Hackathon (WP1-WP5)
-
-### Ziel und Erfolgskriterien
-**Ziel:** In einer lokalen .NET-Aspire-Demo einen vollständigen Observability-Kreislauf zeigen: Eine PUI-Fachaktion erzeugt technische und fachliche Telemetrie, der LGTM-Stack macht sie sichtbar, Grafana bewertet Alert-Regeln und n8n verarbeitet den Alert automatisiert weiter.
-
-**Erfolgskriterien (messbar und demotauglich):**
-- Eine PUI-Aktion ist in unter 60 Sekunden in Grafana als Metrik, Log und Trace nachvollziehbar.
-- Mindestens ein Alert wird live ausgelöst und endet sichtbar als n8n-Workflow-Resultat (z. B. MailHog-Mail).
-- Die fünf Demo-Schritte (Normal -> Slow -> Error -> Alert -> Recovery) laufen reproduzierbar durch.
-
-### Leitidee
-> AppHost, LGTM-Stack und n8n bleiben stabil. Optimiert wird vor allem die Schicht zwischen Web UI und PUI-Service.
-
-Der bisherige `PuiProxy` wird konzeptionell zu einer klar benannten **PuiApi** weiterentwickelt: keine reine Weiterleitungsschicht mehr, sondern eine PUI-Observability-API, die Fachaktionen und Fehlerszenarien bereitstellt und daraus technische und fachliche Telemetrie erzeugt. Diese Evolution ist in [WP2](#wp2---pui-api-und-telemetry-integration) beschrieben und für den Pitch empfohlen, aber nicht zwingend (Fallback siehe dort).
-
-### Priorisierung (MoSCoW)
-Bei begrenzter Hackathon-Zeit gilt diese Reihenfolge:
-
-| Priorität | Inhalt | Begründung |
-| --- | --- | --- |
-| **Must** | WP1 Setup, WP2 Telemetrie (technisch), WP3 Health-Dashboard, ein funktionierender Alert (WP4), WP5 Story | Ohne diese Kette gibt es keine vorzeigbare End-to-End-Demo. |
-| **Should** | Fachliche PUI-Metriken, getrennte Dashboards (Business/Logs/Traces), n8n-Routing nach Severity | Hebt die Demo von einer reinen Tool-Schau zu einer fachlichen Story. |
-| **Could** | Umbenennung `PuiProxy` -> `PuiApi`, REST-Struktur `/api/pui`, Collector-Processors, Business-Alerts | Hohe Wirkung im Pitch, aber bei Zeitmangel verschiebbar. |
-| **Won't (heute)** | Auth, Persistenz, echte externe Notification-Ziele (Teams/Slack/Jira produktiv) | Nicht demo-relevant, erhöht nur Risiko. |
-
-### Zeitplan (Time-Boxing für einen Tag)
-| Slot | Fokus | Ergebnis am Ende des Slots |
-| --- | --- | --- |
-| Block 1 | WP1 + WP2 Basis | Stack läuft, eine PUI-Aktion erzeugt Metrik/Log/Trace |
-| Block 2 | WP2 fachlich + WP3 | Health- und Business-Dashboard zeigen reale Werte |
-| Block 3 | WP4 | Ein Alert löst aus und erreicht n8n |
-| Block 4 | WP5 + Puffer | Story sitzt, Fallback-Screenshots vorhanden, Probelauf erfolgreich |
-
----
-
-### WP1 - Architektur und Setup
-**Ziel:** Eine stabile, reproduzierbare Basisinfrastruktur, auf der alle weiteren Pakete aufsetzen.
-
-**Was konkret:**
-- Der AppHost orchestriert sieben Container-Ressourcen: `otel-collector`, `prometheus`, `loki`, `tempo`, `grafana`, `mailhog`, `n8n`.
-- Alle Observability-Dienste werden per Bind-Mount aus `observability/` konfiguriert.
-- `apiservice`, `puiapi` und `webfrontend` sind über `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:34317` an den Collector angebunden.
-- Feste Host-Ports und `isProxied: false` halten die lokale Laufzeit einfach erreichbar.
-
-**Definition of Done:**
-- [ ] AppHost startet alle Container ohne Fehler.
-- [ ] Aspire-Dashboard und Grafana sind erreichbar.
-- [ ] Der Collector-Health-Endpoint antwortet.
-
-**Priorität:** Must. **Fallback:** Keiner. Ohne diese Basis gibt es keine Demo.
-
-### WP2 - PUI API und Telemetry Integration
-**Ziel:** Eine klar abgegrenzte PUI-Schicht, die reale Fachaktionen und Fehlerszenarien simuliert und daraus technische sowie fachliche Telemetrie erzeugt.
-
-**Was konkret:**
-- Die Service Defaults aktivieren OpenTelemetry-Basistelemetrie für ASP.NET Core, HTTP-Clients und Runtime.
-- Fachliche Trigger und Metriken liegen in der PUI-Schicht (nicht im `ApiService`), inklusive Simulationen `error-burst`, `slow`, `down`, `reset`.
-- **Technische Telemetrie** entsteht automatisch über die Instrumentierung (Requests, Latenz, Exceptions).
-- **Fachliche Telemetrie** entsteht über eigene Meter/ActivitySources, z. B. Zähler für Aktionen je Outcome und ein Histogramm für die Aktionsdauer.
-- Der Collector verarbeitet drei Pipelines (`metrics`, `logs`, `traces`) und exportiert nach Prometheus, Loki und Tempo. Empfohlen sind die Processors `memory_limiter`, `batch` und `resource` (einheitliche Attribute wie `service.name`, `deployment.environment=local-demo`).
-
-**Empfohlene Evolution `PuiProxy` -> `PuiApi` (Could, hohe Pitch-Wirkung):**
-- Den Dienst von `AspireApp.PuiProxy` zu `AspireApp.PuiApi` weiterentwickeln und im AppHost/Web als `puiapi` referenzieren (einheitlicher `service_name="puiapi"` in Grafana).
-- Endpunkte in eine klarere REST-Struktur überführen:
-
-| Heute (Ist) | Empfohlen (Ziel) | Zweck |
-| --- | --- | --- |
-| `POST /pui/action/{name}` | `POST /api/pui/actions/{name}` | Fachaktion auslösen (z. B. `generate-report`, `export-excel`, `send-warning`) |
-| `POST /pui/simulate/{scenario}` | `POST /api/pui/simulations/{scenario}` | Szenario aktivieren (`slow`, `error-burst`, `down`) |
-| (Teil von simulate) | `POST /api/pui/reset` | Normalzustand wiederherstellen |
-| `GET /pui/report` | `GET /api/pui/report` | Aktuellen Zustand anzeigen |
-
-**Warum:**
-Die Kombination aus technischer Basistelemetrie und PUI-spezifischen, fachlich benannten Triggern macht die Demo reproduzierbar und aussagekräftig. Ein klar benannter `puiapi`-Service vereinfacht Dashboards, Queries und Alerts.
-
-**Definition of Done:**
-- [ ] Eine ausgelöste PUI-Aktion erscheint als Metrik, Log und Trace in der Pipeline.
-- [ ] Die Szenarien `slow`, `error-burst`, `down`, `reset` verändern das beobachtbare Verhalten sichtbar.
-- [ ] Mindestens eine fachliche Metrik (Aktionen/Outcome oder Aktionsdauer) ist vorhanden.
-
-**Priorität:** Must (Basis-Telemetrie + Szenarien), Should (fachliche Metriken), Could (Umbenennung + REST-Struktur).
-**Fallback:** Bei Zeitmangel beim aktuellen `PuiProxy` mit den bestehenden `/pui/...`-Endpunkten bleiben; nur die Beschreibung/Story auf "PuiApi" ausrichten.
-
-### WP3 - Grafana Dashboard
-**Ziel:** Eine an der PUI-Service-Grenze ausgerichtete, klar lesbare Demo-Oberfläche.
-
-**Was konkret:**
-- Dashboards sind per Provisioning automatisch geladen.
-- Vier spezialisierte Dashboards statt eines Monolithen:
-    - `pui-system-health` (Requests, Latenz P95, Error Rate)
-    - `pui-business-metrics` (Aktionen je Outcome, Aktionsdauer)
-    - `pui-logs` (gefilterte Logs des PUI-Service)
-    - `pui-traces` (Request-Pfade für die Ursachenanalyse)
-
-**Warum:**
-So bleibt die Demo klar lesbar und folgt einem realistischen Troubleshooting-Pfad: vom Symptom (Health) über die fachliche Auswirkung (Business) bis zur Ursache (Logs/Traces).
-
-**Definition of Done:**
-- [ ] Alle vier Dashboards laden automatisch und zeigen Live-Daten.
-- [ ] Im Health-Dashboard ist der Latenzanstieg bei `slow` sichtbar.
-- [ ] Im Business-Dashboard sind Erfolg/Fehler je Aktion erkennbar.
-
-**Priorität:** Must (Health), Should (Business/Logs/Traces).
-**Fallback:** Notfalls nur `pui-system-health` live zeigen, restliche per Screenshot.
-
-### WP4 - Alerting und Notification
-**Ziel:** Aus einem sichtbaren Problem wird automatisiert eine weiterverarbeitbare Benachrichtigung.
-
-**Was konkret:**
-- Grafana-Regeln sind provisioniert. Empfohlene Zweiteilung:
-    - **Technische Alerts:** `HighErrorRate`, `SlowResponse` (P95), `ServiceDown`, `ExceptionSpike`.
-    - **Business-Alerts (Could):** `ReportGenerationFailed`, `WarningSendingFailed`, `ExcelExportFailed`, `ActionFailureBurst`.
-- Der Contact Point zeigt auf `n8n-webhook` (Webhook), nicht direkt auf SMTP.
-- n8n übernimmt das Routing: Payload normalisieren, Severity klassifizieren, Grafana-/Loki-/Tempo-Links anreichern und nach Schweregrad routen (critical -> Teams/Jira, warning -> MailHog/E-Mail, info -> nur protokollieren).
-
-**Warum:**
-Der Mehrwert ist nicht nur Alarmierung, sondern Klassifikation, Anreicherung und automatisierte Weiterverarbeitung des Alerts.
-
-**Definition of Done:**
-- [ ] Mindestens eine Regel löst im Szenario `error-burst` live aus.
-- [ ] Der Alert erreicht n8n und erzeugt ein sichtbares Resultat (z. B. MailHog-Mail).
-- [ ] Die Benachrichtigung enthält Service, Szenario und einen Grafana-Link.
-
-**Priorität:** Must (ein funktionierender technischer Alert), Should (n8n-Routing), Could (Business-Alerts).
-**Fallback:** Eine einzige robuste Regel (`HighErrorRate`) live zeigen, restliches Routing per Screenshot.
-
-### WP5 - Demo und Pitch
-**Ziel:** Eine klare Story, die den technischen Aufbau als Nutzen erlebbar macht.
-
-**Was konkret:**
-- Roter Faden: Fachaktion -> Systemstörung -> Observability-Signale -> Alert -> automatisierte Reaktion -> Recovery (Detailablauf siehe [Kompakter Demo-Flow](#kompakter-demo-flow)).
-- Nutzenbotschaft: Wir überwachen nicht nur, ob das System technisch gesund ist, sondern auch, ob wichtige PUI-Fachaktionen erfolgreich sind.
-- Fallback-Screenshots aus Grafana und n8n für den Notfall.
-
-**Definition of Done:**
-- [ ] Ein vollständiger Probelauf der fünf Schritte ist ohne Eingriff durchgelaufen.
-- [ ] Fallback-Screenshots liegen bereit.
-- [ ] Der Pitch endet mit einer klaren Nutzenaussage.
-
-**Priorität:** Must. **Fallback:** Kürzbar (Slow- oder Recovery-Schritt überspringen), aber nicht streichen.
-
-## Projektstruktur
-Das System ist in fünf funktionale Schichten aufgeteilt:
-
-1. **AppHost** startet und verknüpft alle Dienste.
-2. **ServiceDefaults** liefert gemeinsame Infrastruktur wie Service Discovery, Health Checks und OpenTelemetry.
-3. **ApiService** stellt eine einfache Beispiel-API bereit.
-4. **Web** ist die Benutzeroberfläche und ruft die anderen Dienste auf.
-5. **PuiApi** simuliert Fachaktionen, Fehler und Betriebszustände für Observability-Tests.
-
-Die Architektur ist absichtlich klein, aber vollständig genug, um einen echten Observability-Datenfluss zu zeigen.
+## Architektur
 
 ```mermaid
-flowchart TD
-    U[Benutzer] --> W[Web UI /pui]
-    W --> P[PuiApi]
-    W --> A[ApiService]
-    P --> O[OpenTelemetry]
-    A --> O
-    O --> C[OTel Collector]
-    C --> PR[Prometheus]
-    C --> L[Loki]
-    C --> T[Tempo]
-    PR --> G[Grafana]
-    L --> G
-    T --> G
-    G --> N[n8n Webhook]
+flowchart LR
+  U[Benutzer] --> WEB[AspireApp.Web]
+  WEB --> API[AspireApp.ApiService]
+  WEB --> PUI[AspireApp.PuiApi]
+
+  API --> OTLP[OTLP Export]
+  PUI --> OTLP
+  WEB --> OTLP
+
+  OTLP --> COL[OTel Collector]
+  COL --> PROM[Prometheus]
+  COL --> LOKI[Loki]
+  COL --> TEMPO[Tempo]
+
+  PROM --> GRAF[Grafana]
+  LOKI --> GRAF
+  TEMPO --> GRAF
+
+  GRAF --> N8N[n8n Webhook]
+  N8N --> MAIL[MailHog SMTP/UI]
 ```
 
-## Komponenten
+## Funktionsübersicht pro Projekt
 
 ### AspireApp.AppHost
-[AppHost](../AspireApp/AspireApp.AppHost/Program.cs#L1) ist der Orchestrator. Er startet die Container für Prometheus, Loki, Tempo, OTel Collector, MailHog, n8n und Grafana. Zusätzlich registriert er die lokalen Projekt-Workloads und verbindet sie mit den passenden Umgebungsvariablen und Endpunkten.
+Zentrale Orchestrierung aller Container und Projekte in Program.cs.
 
-Wichtige Stellen im Code:
-- Grafana-Container: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L45)
-- PuiApi-Projekt: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L62)
-- Web-Projekt: [Program.cs](../AspireApp/AspireApp.AppHost/Program.cs#L67)
-
-Kurz gesagt: AppHost ist der Startpunkt, der aus mehreren Einzelteilen ein lauffähiges Gesamtsystem macht.
+Wesentliche Funktionen:
+- Startet Observability-Container: Prometheus, Loki, Tempo, OTel-Collector, Grafana.
+- Startet Hilfsdienste: MailHog und n8n.
+- Setzt feste Host-Ports (isProxied: false) für reproduzierbare lokale Zugriffe.
+- Startet Projekt-Workloads apiservice, puiapi, webfrontend.
+- Setzt OTLP-Umgebungsvariablen für alle Workloads.
+- Bindet n8n-Workflows und MailHog-Credential als ReadOnly-Mounts ein.
+- Führt n8n-Import/Activation beim Containerstart aus:
+  - n8n import:credentials
+  - n8n import:workflow --separate
+  - n8n update:workflow --all --active=true
 
 ### AspireApp.ServiceDefaults
-[ServiceDefaults](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L17) ist die gemeinsame Basis für alle Services. Die Erweiterung `AddServiceDefaults()` aktiviert:
-- OpenTelemetry für Logs, Metriken und Traces
-- Service Discovery
-- Standard-Resilience für HTTP-Clients
-- Default Health Checks
+Gemeinsame Infrastrukturkonfiguration in Extensions.cs.
 
-Die relevanten Stellen sind:
-- Service Discovery: [Extensions.cs](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L23)
-- HTTP-Client-Defaults und Resilience: [Extensions.cs](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L25)
-- OpenTelemetry-Logging und Tracing: [Extensions.cs](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L39)
-
-Diese Bibliothek verhindert, dass jede Anwendung dieselbe Infrastruktur-Konfiguration doppelt implementieren muss.
+Wesentliche Funktionen:
+- AddServiceDefaults(...): aktiviert OpenTelemetry, Health Checks, Service Discovery, HTTP-Resilience.
+- ConfigureOpenTelemetry(...):
+  - Logging per OpenTelemetry
+  - Metriken: ASP.NET Core, HttpClient, Runtime
+  - Tracing: ASP.NET Core, HttpClient
+- AddOpenTelemetryExporters(...): OTLP-Exporter nur bei gesetztem OTEL_EXPORTER_OTLP_ENDPOINT.
+- AddDefaultHealthChecks(...): registriert self-Check (Tag live).
+- MapDefaultEndpoints(...): mappt /health und /alive im Development-Umfeld.
 
 ### AspireApp.ApiService
-[ApiService](../AspireApp/AspireApp.ApiService/Program.cs#L1) ist die einfache Beispiel-API. Sie stellt den Weather-Endpoint bereit und verwendet ebenfalls die gemeinsamen Service Defaults.
+Minimal API für Wetterdaten in Program.cs.
 
-Zentrale Punkte:
-- `AddServiceDefaults()` wird direkt aktiviert: [Program.cs](../AspireApp/AspireApp.ApiService/Program.cs#L4)
-- Der Beispiel-Endpoint ist `/weatherforecast`: [Program.cs](../AspireApp/AspireApp.ApiService/Program.cs#L19)
-- Health-Endpunkte werden über `MapDefaultEndpoints()` bereitgestellt: [Program.cs](../AspireApp/AspireApp.ApiService/Program.cs#L32)
-
-Funktional ist das ein simples Backend, das zeigt, wie eine typische Service-API in Aspire eingebunden wird.
-
-### AspireApp.Web
-[Web](../AspireApp/AspireApp.Web/Program.cs#L1) ist die Frontend-Anwendung. Sie rendert die Benutzeroberfläche und ruft Backend-Dienste per HTTP-Client auf.
-
-Wichtige Aufgaben:
-- Aktiviert Service Defaults: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L7)
-- Bindet `WeatherApiClient` an `apiservice`: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L16)
-- Bindet `PuiApiClient` an `puiapi`: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L22)
-- Registriert die Standard-Endpunkte: [Program.cs](../AspireApp/AspireApp.Web/Program.cs#L46)
-
-Die PUI-Seite selbst befindet sich in [Pui.razor](../AspireApp/AspireApp.Web/Components/Pages/Pui.razor#L1). Dort gibt es Buttons zum Auslösen von Fachaktionen und Simulationsszenarien.
+Wesentliche Funktionen:
+- AddServiceDefaults() und AddProblemDetails().
+- GET /weatherforecast:
+  - erzeugt 5 zufällige Forecast-Einträge
+  - Rückgabe als Array von WeatherForecast.
+- MapDefaultEndpoints() und app.Run().
 
 ### AspireApp.PuiApi
-[PuiApi](../AspireApp/AspireApp.PuiApi/Program.cs#L1) ist der Simulations- und Observability-Dienst. Er ist dafür da, echte Betriebszustände nachzustellen und daraus Telemetrie zu erzeugen.
+Domänenspezifische Test- und Simulations-API in Program.cs.
 
-Die wichtigsten Endpunkte sind:
-- `POST /api/pui/actions/{name}`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L28)
-- `GET /api/pui/report`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L112)
-- `POST /api/pui/simulations/{scenario}`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L130)
-- `POST /api/pui/reset`: [Program.cs](../AspireApp/AspireApp.PuiApi/Program.cs#L130)
+Wesentliche Funktionen:
+- AddServiceDefaults(), AddProblemDetails().
+- Registriert HttpClient pui-remote (Pui:BaseUrl/PUI_BASE_URL/Fallback postman-echo).
+- Registriert Singleton Observability und zusätzliche OTel-Registrierung (Source/Meter AspireApp.PuiApi).
+- GET /: einfacher Service-Status.
+- API-Gruppe /api/pui mit Endpunkten:
+  - POST /actions/{name}
+  - GET /report
+  - POST /simulations/{scenario}
+  - POST /reset
+  - GET /simulations/state
+- Simulationszustand über SimulationState:
+  - IsDown
+  - SlowMode
+  - ErrorBurstRemaining
+- Metriken über Observability:
+  - pui.requests.total
+  - pui.requests.failed
+  - pui.actions.success
+  - pui.request.duration
+- Tracing über ActivitySource AspireApp.PuiApi.
 
-Was der Dienst intern macht:
-- Er protokolliert jede Aktion mit Trace-ID und Benutzerkontext.
-- Er zählt Requests, Fehler und Erfolgsraten über Metriken.
-- Er erzeugt Traces über `ActivitySource`.
-- Er simuliert Störungen wie `error-burst`, `slow`, `down` und `reset`.
+### AspireApp.Web
+Blazor Server Frontend mit Razor Components.
 
-Damit ist PuiApi der Teil, der absichtlich Fehler produziert, damit das Observability-Setup sichtbar wird.
+Wesentliche Funktionen:
+- Program.cs:
+  - AddServiceDefaults()
+  - AddRazorComponents().AddInteractiveServerComponents()
+  - AddOutputCache()
+  - HttpClient für apiservice und puiapi via Service Discovery (https+http://...)
+  - Pipeline: HTTPS, StaticFiles, Antiforgery, OutputCache
+  - MapRazorComponents<App>().AddInteractiveServerRenderMode()
+  - MapDefaultEndpoints()
+- PuiApiClient:
+  - RunActionAsync(actionName)
+  - SetScenarioAsync(scenario)
+- WeatherApiClient:
+  - GetWeatherAsync(maxItems)
+- Razor-Seiten:
+  - Home
+  - Counter
+  - Weather
+  - Pui
+  - Error
 
-## End-to-End-Pipeline
-Die komplette Kette läuft so:
+## Endpunkte und technische Funktionen
 
-1. Der Benutzer öffnet die Web-Oberfläche.
-2. Die Web-App ruft PuiApi oder ApiService per HTTP auf.
-3. PuiApi verarbeitet die Fachaktion oder Simulation.
-4. Dabei entstehen Logs, Metriken und Traces.
-5. Das OpenTelemetry-Setup exportiert Telemetrie an den Collector.
-6. Der Collector leitet Daten an Prometheus, Loki und Tempo weiter.
-7. Grafana visualisiert die Daten und bewertet Alert-Regeln.
-8. Wenn ein Alert auslöst, sendet Grafana einen Webhook an n8n.
-9. n8n nimmt den Alert entgegen und antwortet mit einem Workflow-Resultat.
+### ApiService
+- GET /weatherforecast
+- /health und /alive (nur Development über MapDefaultEndpoints)
 
-Die technische Grundlage dafür liegt in:
-- [AppHost](../AspireApp/AspireApp.AppHost/Program.cs#L1)
-- [ServiceDefaults](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L17)
-- [Web](../AspireApp/AspireApp.Web/Program.cs#L1)
-- [PuiApi](../AspireApp/AspireApp.PuiApi/Program.cs#L1)
+### PuiApi
+- GET /
+- POST /api/pui/actions/{name}
+- GET /api/pui/report
+- POST /api/pui/simulations/{scenario}
+- POST /api/pui/reset
+- GET /api/pui/simulations/state
+- /health und /alive (nur Development)
 
-### Beispielhafter Ablauf für `error-burst`
-1. In der Web-App wird `Simulate error-burst` ausgelöst.
-2. Die Web-App sendet den Szenario-Request an PuiApi.
-3. PuiApi setzt die Fehler-Simulation intern auf einen Fehlerzähler.
-4. Die nächste Fachaktion liefert einen HTTP-500-Fehler.
-5. Die Fehler-Metrik steigt.
-6. Grafana erkennt die Regelverletzung.
-7. Der Alert wird an n8n weitergereicht.
-8. n8n beantwortet den Webhook und dokumentiert die Ausführung.
+### Web
+- UI-Routen: /, /counter, /weather, /pui, /Error
+- /health und /alive (nur Development)
 
-## Kompakter Demo-Flow
+### n8n (Workflows)
+- Alert-Workflow Webhook-Knotenpfad: grafana-alert
+- Incident-Workflow Webhook-Knotenpfad: pui-incident
+- Mailversand über SMTP-Credential mailhog-smtp
 
-1. **Normalzustand zeigen:** PUI-Aktion auslösen, in Grafana normale Werte und grüne Lage zeigen.
-2. **Langsamkeit zeigen:** `slow` aktivieren, erneut Aktion auslösen, steigende Latenz im Health-Dashboard demonstrieren.
-3. **Fehlerphase zeigen:** `error-burst` aktivieren, Aktionen auslösen, Error-Rate und Fehlermetriken sichtbar machen.
-4. **Alert-Kette zeigen:** In Grafana den ausgelösten Alert öffnen, dann n8n-Webhook-Verarbeitung und Ergebnis anzeigen.
-5. **Recovery zeigen:** `reset` auslösen und Stabilisierung der Signale in Grafana verifizieren.
+## Vollständiger Dateikatalog (AspireApp)
 
-## Konfiguration und Laufzeit
-Die gemeinsame Telemetrie-Konfiguration ist in [ServiceDefaults](../AspireApp/AspireApp.ServiceDefaults/Extensions.cs#L17) implementiert. Dort wird OpenTelemetry nur dann mit einem OTLP-Exporter aktiviert, wenn ein Endpoint in der Konfiguration vorhanden ist.
+Hinweis: Der Katalog umfasst alle nicht-generierten Dateien unter AspireApp (bin/obj ausgenommen).
 
-Im AppHost werden die Container mit festen Host-Ports und ohne Proxied-Endpoint gestartet. Das macht die lokale Laufzeit stabiler und einfacher zu erreichen.
+| Datei | Typ | Zweck / Inhalt |
+| --- | --- | --- |
+| AspireApp/AspireApp.sln | Solution | Enthält fünf Projekte und Build-Konfigurationen (Debug/Release, AnyCPU/x64/x86). |
+| AspireApp/AspireApp.ApiService/AspireApp.ApiService.csproj | Projektdatei | net8.0 Web SDK, Referenz auf ServiceDefaults. |
+| AspireApp/AspireApp.ApiService/Program.cs | C# | Minimal-API /weatherforecast, ProblemDetails, ServiceDefaults, Health-Mapping. |
+| AspireApp/AspireApp.ApiService/appsettings.json | JSON | Logging-Level + AllowedHosts. |
+| AspireApp/AspireApp.ApiService/appsettings.Development.json | JSON | Development-Logging-Level. |
+| AspireApp/AspireApp.ApiService/Properties/launchSettings.json | JSON | Lokale Startprofile (http 5324, https 7301). |
+| AspireApp/AspireApp.AppHost/AspireApp.AppHost.csproj | Projektdatei | net8.0 Exe, IsAspireHost=true, Package Aspire.Hosting.AppHost 8.2.2, Referenzen auf Web/API/PuiApi. |
+| AspireApp/AspireApp.AppHost/Program.cs | C# | Orchestriert Container und Projekte, Portmapping, n8n-Startup-Importlogik, OTLP-Env. |
+| AspireApp/AspireApp.AppHost/appsettings.json | JSON | Logging inkl. Aspire.Hosting.Dcp auf Warning. |
+| AspireApp/AspireApp.AppHost/appsettings.Development.json | JSON | Development-Logging-Level. |
+| AspireApp/AspireApp.AppHost/Properties/launchSettings.json | JSON | AppHost-Startprofile, Dashboard-/Resource-Service-Umgebungsvariablen. |
+| AspireApp/AspireApp.AppHost/observability/prometheus.yml | YAML | Prometheus-Scrape-Intervall + Self-Scrape. |
+| AspireApp/AspireApp.AppHost/observability/prometheus-enable-remote-write.txt | TXT | Erläutert notwendiges Prometheus-Flag für remote_write. |
+| AspireApp/AspireApp.AppHost/observability/loki-config.yaml | YAML | Loki Single-Node-Konfiguration (tsdb, Retention, Limits). |
+| AspireApp/AspireApp.AppHost/observability/tempo-config.yaml | YAML | Tempo OTLP-Receiver, Metrics Generator, local storage, remote_write zu Prometheus. |
+| AspireApp/AspireApp.AppHost/observability/otel-collector-config.yaml | YAML | Receiver OTLP, Processor batch/resource, Exporter zu Prometheus/Loki/Tempo + debug. |
+| AspireApp/AspireApp.AppHost/observability/grafana/provisioning/datasources/datasources.yaml | YAML | Datasources Prometheus/Loki/Tempo inkl. Trace-Korrelation. |
+| AspireApp/AspireApp.AppHost/observability/grafana/provisioning/dashboards/dashboards.yaml | YAML | Dashboard-Provider PUI Observability, Dateipfad /var/lib/grafana/dashboards. |
+| AspireApp/AspireApp.AppHost/observability/grafana/provisioning/alerting/contact-points.yaml | YAML | Contact Point n8n-webhook auf host.docker.internal:35678/... |
+| AspireApp/AspireApp.AppHost/observability/grafana/provisioning/alerting/notification-policies.yaml | YAML | Gruppierung und Wiederholungsintervalle für Alerts. |
+| AspireApp/AspireApp.AppHost/observability/grafana/provisioning/alerting/rules.yaml | YAML | Regeln HighErrorRate, SlowResponse, ServiceDown, ExceptionSpike, FailedRequestsBurst. |
+| AspireApp/AspireApp.AppHost/observability/grafana/dashboards/pui-system-health.json | JSON | Dashboard PUI - System Health; Panels: Monitoring Stack Up, Request Rate, API p95 Latency, Error Rate. |
+| AspireApp/AspireApp.AppHost/observability/grafana/dashboards/pui-business-metrics.json | JSON | Dashboard PUI - Business Metrics; Panels: PUI Requests Total, Successful Actions, Failed Requests, P95 Action Duration by Action, Requests per Action. |
+| AspireApp/AspireApp.AppHost/observability/grafana/dashboards/pui-logs.json | JSON | Dashboard PUI - Logs; Panels: Application Logs, Error Logs by Service (5m), Log Volume by Service (5m). |
+| AspireApp/AspireApp.AppHost/observability/grafana/dashboards/pui-traces.json | JSON | Dashboard PUI - Traces; Panels: Trace Search, Trace Volume by Service. |
+| AspireApp/AspireApp.AppHost/observability/n8n/mailhog-credential.json | JSON | n8n SMTP-Credential für MailHog (host.docker.internal:32525). |
+| AspireApp/AspireApp.AppHost/observability/n8n/workflows/pui-alert-router.workflow.json | JSON | Workflow-Definition: Alert normalisieren, Teams/Email/Slack senden, Webhook-Antwort. |
+| AspireApp/AspireApp.AppHost/observability/n8n/workflows/pui-alert-router.import.json | JSON | Import-Wrapper (Array-Format) für pui-alert-router.workflow.json. |
+| AspireApp/AspireApp.AppHost/observability/n8n/workflows/pui-incident-automation.workflow.json | JSON | Workflow-Definition: Incident aufbauen, Critical-Branch, GitHub-Issue/Teams, Response. |
+| AspireApp/AspireApp.AppHost/observability/n8n/workflows/pui-incident-automation.import.json | JSON | Import-Wrapper (Array-Format) für pui-incident-automation.workflow.json. |
+| AspireApp/AspireApp.AppHost/observability/n8n/database.sqlite | SQLite | Laufzeitzustand von n8n (lokaler State/Execution-Historie). Kein Quellcode-Artefakt. |
+| AspireApp/AspireApp.PuiApi/AspireApp.PuiApi.csproj | Projektdatei | net8.0 Web SDK, Referenz auf ServiceDefaults. |
+| AspireApp/AspireApp.PuiApi/Program.cs | C# | PUI-Endpunkte, Simulationslogik, Metriken/Tracing, Remote-Call-Verhalten. |
+| AspireApp/AspireApp.PuiApi/appsettings.json | JSON | Pui:BaseUrl + Logging + AllowedHosts. |
+| AspireApp/AspireApp.PuiApi/appsettings.Development.json | JSON | Development-Config für Pui:BaseUrl und Logging. |
+| AspireApp/AspireApp.PuiApi/Properties/launchSettings.json | JSON | Lokale Startprofile (http 5190, https 7102). |
+| AspireApp/AspireApp.ServiceDefaults/AspireApp.ServiceDefaults.csproj | Projektdatei | Shared-Infrastrukturpakete (Service Discovery, Resilience, OTel). |
+| AspireApp/AspireApp.ServiceDefaults/Extensions.cs | C# | Zentraler Infrastruktur-Baukasten für alle Services. |
+| AspireApp/AspireApp.Web/AspireApp.Web.csproj | Projektdatei | net8.0 Web SDK, Referenz auf ServiceDefaults. |
+| AspireApp/AspireApp.Web/Program.cs | C# | Frontend-Bootstrap, HttpClients, Middleware, Razor-Komponenten-Mapping. |
+| AspireApp/AspireApp.Web/PuiApiClient.cs | C# | Client für PUI-Endpunkte (Action/Scenario). |
+| AspireApp/AspireApp.Web/WeatherApiClient.cs | C# | Client für /weatherforecast mit Streaming-Deserialisierung. |
+| AspireApp/AspireApp.Web/appsettings.json | JSON | Logging + AllowedHosts. |
+| AspireApp/AspireApp.Web/appsettings.Development.json | JSON | Development-Logging-Level. |
+| AspireApp/AspireApp.Web/Properties/launchSettings.json | JSON | Lokale Startprofile (http 5101, https 7215). |
+| AspireApp/AspireApp.Web/Components/_Imports.razor | Razor | Globale using-Direktiven für Komponenten. |
+| AspireApp/AspireApp.Web/Components/App.razor | Razor | HTML-Shell, CSS/Script-Referenzen, Host für Routes-Komponente. |
+| AspireApp/AspireApp.Web/Components/Routes.razor | Razor | Router-Konfiguration inkl. DefaultLayout und FocusOnNavigate. |
+| AspireApp/AspireApp.Web/Components/Layout/MainLayout.razor | Razor | Hauptlayout mit Sidebar, Top-Bar und Error-UI. |
+| AspireApp/AspireApp.Web/Components/Layout/MainLayout.razor.css | CSS | Layout-Styling inkl. Responsive Sidebar und Error-UI-Stile. |
+| AspireApp/AspireApp.Web/Components/Layout/NavMenu.razor | Razor | Navigationsmenü für Home/Counter/Weather/PUI Demo. |
+| AspireApp/AspireApp.Web/Components/Layout/NavMenu.razor.css | CSS | Styling für Navbar, Toggler, Icons und Nav-Zustände. |
+| AspireApp/AspireApp.Web/Components/Pages/Home.razor | Razor | Startseite (Hello world). |
+| AspireApp/AspireApp.Web/Components/Pages/Counter.razor | Razor | Interaktiver Zähler mit IncrementCount-Funktion. |
+| AspireApp/AspireApp.Web/Components/Pages/Weather.razor | Razor | Wettertabelle über WeatherApiClient, StreamRendering + OutputCache(5s). |
+| AspireApp/AspireApp.Web/Components/Pages/Pui.razor | Razor | UI für PUI-Aktionen und Szenarien, Ergebnisanzeige mit Status/Payload. |
+| AspireApp/AspireApp.Web/Components/Pages/Error.razor | Razor | Fehlerseite mit Request-ID-Auflösung über Activity/HttpContext. |
+| AspireApp/AspireApp.Web/wwwroot/app.css | CSS | Globale Basisstyles und Blazor-Error-Boundary-Styling. |
+| AspireApp/AspireApp.Web/wwwroot/favicon.png | Asset | Favicon der Web-App. |
+| AspireApp/AspireApp.Web/wwwroot/bootstrap/bootstrap.min.css | Asset | Bootstrap-Minified-CSS. |
+| AspireApp/AspireApp.Web/wwwroot/bootstrap/bootstrap.min.css.map | Asset | Source-Map für bootstrap.min.css. |
 
-Wichtige Ressourcen im aktuellen Setup:
-- Grafana: `http://localhost:33000`
-- n8n: `http://localhost:35678`
-- Prometheus: `http://localhost:39090`
-- Loki: `http://localhost:33100`
-- Tempo: `http://localhost:33200`
+## Observability- und Alerting-Pipeline
 
-## Wichtige URLs
-- Aspire Dashboard: `https://localhost:17290/`
-- Grafana: `http://localhost:33000/`
-- n8n: `http://localhost:35678/`
-- PUI-Seite: im Web-Frontend unter `/pui`
-- ApiService-Health: über die Standard-Endpunkte des Dienstes
-- PuiApi-Report: `/api/pui/report`
+1. Die Services exportieren OTLP-Daten an den Collector (Endpoint via OTEL_EXPORTER_OTLP_ENDPOINT).
+2. Der Collector schreibt:
+   - Metriken per prometheusremotewrite nach Prometheus
+   - Logs per otlphttp/loki nach Loki
+   - Traces per otlp/tempo nach Tempo
+3. Grafana nutzt provisionierte Datasources und Dashboards.
+4. Alert-Regeln werden in rules.yaml ausgewertet.
+5. Notification Policy routet auf Contact Point n8n-webhook.
+6. n8n verarbeitet Webhook-Events in zwei Workflows und versendet u. a. E-Mail via MailHog.
+
+## Konfiguration und Betrieb
+
+### Relevante lokale Ports
+- Aspire Dashboard: https://localhost:17290
+- AppHost HTTP: http://localhost:15076
+- Grafana: http://localhost:33000
+- Prometheus: http://localhost:39090
+- Loki: http://localhost:33100
+- Tempo: http://localhost:33200
+- OTel Collector OTLP gRPC: http://localhost:34317
+- OTel Collector OTLP HTTP: http://localhost:34318
+- OTel Collector Health: http://localhost:31333
+- MailHog SMTP: localhost:32525
+- MailHog UI: http://localhost:38025
+- n8n: http://localhost:35678
+- ApiService: http://localhost:5324 / https://localhost:7301
+- PuiApi: http://localhost:5190 / https://localhost:7102
+- Web: http://localhost:5101 / https://localhost:7215
+
+### Startmodus-Hinweis
+aspire start benötigt .NET SDK 10.0.100+.
+Für diese Lösung mit installiertem SDK 9.0.306 wird AppHost per dotnet run auf AspireApp.AppHost.csproj gestartet.
 
 ## Troubleshooting
 
-### Ich sehe den Aspire Dashboard-Zugriff nicht
-Der Dashboard-Host läuft lokal über HTTPS. Wenn das Zertifikat nicht vertraut ist, zeigt der Browser eine Warnung. Das ist bei einer lokalen Development-Umgebung normal.
+### aspire start meldet "No supported app hosts were found"
+Ursache: SDK-Version < 10.0.100.
+Lösung: AppHost mit dotnet run starten oder SDK aktualisieren.
 
-### Die Web-Oberfläche zeigt keine Daten
-Prüfe zuerst, ob AppHost läuft und ob der Web-Dienst die Service Defaults geladen hat. Ohne `AddServiceDefaults()` fehlen häufig Discovery, Telemetrie und Health Checks.
+### Grafana zeigt keine aktuellen Daten
+Prüfen:
+1. OTel-Collector läuft (Health 31333).
+2. OTEL_EXPORTER_OTLP_ENDPOINT wird in allen drei Workloads gesetzt.
+3. Prometheus Remote-Write Receiver aktiv (Flag in AppHost gesetzt).
 
-### Alerts kommen nicht in n8n an
-Prüfe diese Punkte:
-- Grafana ist erreichbar.
-- Der n8n-Container läuft.
-- Der Contact Point zeigt auf den korrekten Webhook.
-- Der Workflow in n8n ist aktiv.
+### n8n-Workflow reagiert nicht
+Prüfen:
+1. Workflows wurden im Array-Importformat (*.import.json) importiert.
+2. update:workflow --all --active=true wurde ausgeführt.
+3. n8n wurde danach neu gestartet.
 
-**Fast-Click-Pfad in Grafana:**
-`Grafana -> Alerting -> Contact points -> n8n-webhook`
+### Teams/Slack-Nodes melden JSON-Validierungsfehler
+Für n8n HTTP Request mit specifyBody=json muss jsonBody als Objekt-Expression gesetzt sein, z. B.:
+={{ {"text": "..."} }}
 
-Für das aktuelle Setup ist in der Provisionierung diese URL hinterlegt:
-`http://host.docker.internal:35678/webhook/pui-alert-router/grafana-webhook/grafana-alert`
+### Mailversand funktioniert nicht
+Prüfen:
+1. Credential mailhog-smtp existiert.
+2. Host ist host.docker.internal, Port 32525.
+3. MailHog UI auf 38025 zeigt eingehende Nachrichten.
 
-Referenz:
-- Contact Point: [contact-points.yaml](../AspireApp/AspireApp.AppHost/observability/grafana/provisioning/alerting/contact-points.yaml#L4)
-- n8n Webhook-Node: [pui-alert-router.workflow.json](../AspireApp/AspireApp.AppHost/observability/n8n/workflows/pui-alert-router.workflow.json#L6)
-
-### Der PUI-Test liefert Fehler
-Das ist je nach Szenario absichtlich so. `error-burst`, `slow` und `down` sind bewusst eingebaute Simulationen, um Observability und Alerting zu testen.
-
-### Brauche ich einen Token für Aspire?
-Für dieses lokale Setup nicht. Die Lösung läuft lokal über AppHost, Docker und die lokalen Dienste. Ein separater Aspire-Token ist für das Starten dieser Demo nicht erforderlich.
-
-## Fazit
-AspireApp ist eine lokale, verteilte Demo, die zeigt, wie eine Web-App, ein API-Service und ein Simulationsdienst mit zentraler Orchestrierung, Observability und Alerting zusammenarbeiten. AppHost startet alles, ServiceDefaults standardisiert die Infrastruktur, ApiService liefert ein Backend, Web ist die Oberfläche und PuiApi erzeugt die Test- und Störfälle für das Monitoring.
+## Weiterführende Detaildokumente
+- [03_AspireApp_AppHost.md](03_AspireApp_AppHost.md)
+- [03_AspireApp_PuiApi.md](03_AspireApp_PuiApi.md)
+- [03_AspireApp_Observability.md](03_AspireApp_Observability.md)
