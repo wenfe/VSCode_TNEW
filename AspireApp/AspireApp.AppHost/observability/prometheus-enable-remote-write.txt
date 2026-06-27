@@ -1,1 +1,0 @@
-Prometheus must be started with the flag --web.enable-remote-write-receiver to accept remote_write from the OTel Collector. This flag is passed via WithContainerRunArgs in AppHost Program.cs.
