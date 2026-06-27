@@ -1,38 +1,42 @@
-# AI / Agent Skills Sandbox
+# VSCode_T Utilities
 
-A working environment for authoring, curating, and running GitHub Copilot / agent skills, instructions, prompts, and MCP configuration. See [CONTEXT.md](CONTEXT.md) for the vocabulary.
+This workspace contains two small Python utilities:
 
-> Physics/thesis research that used to live here was relocated to a sibling folder `../Verteidigung_Research/` (see [ADR 0001](docs/adr/0001-ai-sandbox-identity.md)). It remains in this repo's Git history.
+- `Imagel.py`: thermal model of a spherical microparticle under beam heating with radiative cooling.
+- `Retrieval.py`: extract frames from a video and save cropped images.
 
-## Layout
+## Requirements
+
+Install dependencies (preferably in a virtual environment):
 
 ```
-.agents/      Curated skills (23) — managed by the `skills` CLI; see catalog below
-.github/      instructions, prompts, agents, plugins, hooks, and skills/ (ignored vendored clone)
-.vscode/      Editor + MCP config
-docs/         adr/ (decision records) + workspace-reorg-plan.md
-logs/         Copilot governance logs (audit / secrets / license / session)
-.gitignore  .mcp.json  skills-lock.json  package.json
+numpy
+scipy
+matplotlib
+opencv-python
 ```
 
-## Skills
+You can also install from `requirements.txt`.
 
-- **Curated skills** live in [`.agents/skills/`](.agents/skills/) — see the full catalog in [.agents/skills/README.md](.agents/skills/README.md).
-- **Vendored skills** ([`.github/skills/`](.github/skills/), ~290) are a **git-ignored local clone** — browsable, read-only, not tracked here (see [ADR 0002](docs/adr/0002-github-skills-vendoring.md)).
+## Usage
 
-Manage curated skills with the CLI:
+Imagel (defaults match the original script):
 
 ```bash
-npx skills@latest list          # list installed skills
-npx skills@latest add <owner/repo>
-npx skills@latest remove <name> -y
-npx skills@latest update
+python Imagel.py --t-end 0.005 --t-steps 500 --output heat_20241127.jpg --xlim 0.0005
 ```
 
-## Governance
+Retrieval (defaults match the original script):
 
-`.github/hooks/` run session-boundary governance (secrets scan, license check, audit, auto-commit) and write to [`logs/copilot/`](logs/copilot/).
+```bash
+python Retrieval.py --video 300kV_50nA.mp4 --outdir data_300kV_50nA --x 564 --y 200 --w 638 --h 578
+```
 
-## Decisions
+Optional flags for Retrieval:
+- `--start`: start frame index (default 0)
+- `--max-frames`: limit number of frames to write (-1 for all)
 
-Architectural decisions are recorded in [`docs/adr/`](docs/adr/). The workspace reorganization itself is documented in [docs/workspace-reorg-plan.md](docs/workspace-reorg-plan.md).
+## Notes
+
+- ROI in `Retrieval.py` is clipped to the frame bounds to avoid errors.
+- `Imagel.py` implements a forward-Euler integrator; adjust parameters as needed.
