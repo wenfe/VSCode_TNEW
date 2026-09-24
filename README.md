@@ -25,12 +25,7 @@ Imagel (defaults match the original script):
 ```bash
 python Imagel.py --t-end 0.005 --t-steps 500 --output heat_20241127.jpg --xlim 0.0005
 ```
-
-Retrieval (defaults match the original script):
-
-```bash
-python Retrieval.py --video 300kV_50nA.mp4 --outdir data_300kV_50nA --x 564 --y 200 --w 638 --h 578
-```
+Dissertation presentation
 
 Optional flags for Retrieval:
 - `--start`: start frame index (default 0)
